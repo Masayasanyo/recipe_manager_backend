@@ -2,18 +2,34 @@ import express from 'express';
 import { supabase } from "../index.js";
 import { decode } from "base64-arraybuffer";
 import multer from 'multer';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Send all recipes
-router.get('/all', async (req, res) => {
-  const { data: { user } } = await supabase.auth.getUser()
+// Check if user has a token.
+function authenticateToken(req, res, next) {
+  const token = req.header('Authorization')?.split(' ')[1];
 
-  if (!user.id) {
-    return;
+  if (!token) {
+    return res.status(401).json({ message: 'Access denied, token missing' });
   }
 
-  const accountId = user.id;
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: 'Invalid or expired token', isLoggedIn: false});
+    }
+    req.user = decoded;
+    next();
+  });
+}
+
+// Send all recipes
+router.get('/all', authenticateToken, async (req, res) => {
+  const accountId = req.user.id;
 
   const { data, error } = await supabase
     .from('recipes')
@@ -43,10 +59,8 @@ router.get('/all', async (req, res) => {
 });
 
 // Send recipes filtered by name
-router.post('/search/name', async (req, res) => {
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const accountId = user.id;
+router.post('/search/name', authenticateToken, async (req, res) => {
+  const accountId = req.user.id;
 
   const { keyword } = req.body;
 
@@ -79,10 +93,8 @@ router.post('/search/name', async (req, res) => {
 });
 
 // Send recipes filtered by ingredient
-router.post('/search/ingredient', async (req, res) => {
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const accountId = user.id;
+router.post('/search/ingredient', authenticateToken, async (req, res) => {
+  const accountId = req.user.id;
 
   const { keyword } = req.body;
 
@@ -114,7 +126,7 @@ router.post('/search/ingredient', async (req, res) => {
 });
 
 // Send a recipe information
-router.post('/detail', async (req, res) => {
+router.post('/detail', authenticateToken, async (req, res) => {
   const { recipeId } = req.body;
 
   if (!recipeId) {
@@ -149,16 +161,14 @@ router.post('/detail', async (req, res) => {
 });
 
 // Add a new recipe
-router.post('/add', async (req, res) => {
+router.post('/add', authenticateToken, async (req, res) => {
   const { imageUrl, title, ingredient, step } = req.body;
 
   if (!title) {
     return res.status(400).json({ error: "Reicpe title is required." });
   }
 
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const accountId = user.id;
+  const accountId = req.user.id;
 
   const { data: recipeData, error: recipeError } = await supabase
     .from('recipes')
@@ -199,7 +209,7 @@ router.post('/add', async (req, res) => {
 });
 
 // Edit a recipe
-router.post('/edit', async (req, res) => {
+router.post('/edit', authenticateToken, async (req, res) => {
   const { recipeId, imageUrl, title, ingredient, step } = req.body;
 
   if (!recipeId || !imageUrl || !title) {
@@ -269,7 +279,7 @@ router.post('/edit', async (req, res) => {
 });
 
 // Delete a recipe
-router.delete('/delete', async (req, res) => {
+router.delete('/delete', authenticateToken, async (req, res) => {
   const { recipeId, recipeUrl } = req.body;
 
   if (!recipeId) {
@@ -304,7 +314,7 @@ router.delete('/delete', async (req, res) => {
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-router.post('/add/upload', upload.single('file'), async function (req, res) {
+router.post('/add/upload', authenticateToken, upload.single('file'), async function (req, res) {
     try {
         const file = req.file;
 
@@ -337,7 +347,7 @@ router.post('/add/upload', upload.single('file'), async function (req, res) {
 });
 
 // Update recipe image files
-router.post('/edit/upload', upload.single('file'), async function (req, res) {
+router.post('/edit/upload', authenticateToken, upload.single('file'), async function (req, res) {
   try {
       const file = req.file;
       const { recipeId, previousUrl } = req.body;
